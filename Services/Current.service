@@ -1,0 +1,9 @@
+[Unit]
+Description=Current
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/root/workspace/final_work2/main2.py
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,87 +1,67 @@
 import smbus
 import time
 
-# Define ADS1115 I2C address and registers
-ADS1115_ADDRESS = 0x48  # I2C address of the ADS1115 ADC
-ADS1115_CONVERSION_REGISTER = 0x00  # Register to read conversion results
-ADS1115_CONFIG_REGISTER = 0x01  # Register to configure the ADC
+# Constants for the ADS1115
+I2C_ADDRESS = 0x48  # Default I2C address for ADS1115
+CONFIG_REG = 0x01
+CONVERSION_REG = 0x00
 
-# Initialize the I2C bus (create bus object)
-bus = smbus.SMBus(1)  # Use I2C bus 1, which is standard on Raspberry Pi
+# Config parameters for the ADS1115
+CONFIG_OS_SINGLE = 0x8000  # Write: Set to start a single-conversion
+CONFIG_MUX_AIN0 = 0x4000   # Input: AIN0 (P) and GND (N)
+CONFIG_PGA_6_144V = 0x0000 # +/-6.144V range
+CONFIG_MODE_SINGLE = 0x0100 # Single-shot mode
+CONFIG_DR_128SPS = 0x0080  # 128 samples per second
+CONFIG_CQUE_NONE = 0x0003  # Disable comparator and set alert pin to high-impedance
 
-def configure_ads1115(channel):
-    """
-    Configures the ADS1115 for single-ended mode, 16-bit resolution, 
-    default gain, and selects the input channel.
-    
-    :param channel: ADC input channel to configure (0 for AIN0)
-    """
-    # Base configuration for single-ended mode, 16-bit, default gain
-    CONFIG = 0xC383  # Single-shot mode, 128 SPS, ±4.096V range
-    
-    # Set the MUX to select the input channel
-    if channel == 0:
-        CONFIG |= 0x4000  # Select AIN0
-    else:
-        raise ValueError("Invalid channel. Choose 0 for AIN0.")
+# Calculate configuration value
+config = (CONFIG_OS_SINGLE | CONFIG_MUX_AIN0 | CONFIG_PGA_6_144V |
+          CONFIG_MODE_SINGLE | CONFIG_DR_128SPS | CONFIG_CQUE_NONE)
 
-    # Write the configuration to the ADS1115 CONFIG_REGISTER
-    bus.write_word_data(ADS1115_ADDRESS, ADS1115_CONFIG_REGISTER, CONFIG)
+def read_adc(channel):
+    # Set up the I2C bus
+    bus = smbus.SMBus(1)
 
-def read_ads1115():
-    """
-    Reads the conversion result from the ADS1115 ADC.
+    # Write config register to start a single conversion
+    bus.write_i2c_block_data(I2C_ADDRESS, CONFIG_REG, [(config >> 8) & 0xFF, config & 0xFF])
 
-    :return: The ADC conversion result as a 16-bit integer.
-    """
-    # Read the conversion result from the CONVERSION_REGISTER
-    result = bus.read_word_data(ADS1115_ADDRESS, ADS1115_CONVERSION_REGISTER)
-    
-    # Swap the byte order (from big-endian to little-endian)
-    result = ((result & 0xFF00) >> 8) | ((result & 0x00FF) << 8)
-    
-    return result
+    # Wait for the conversion to complete
+    time.sleep(0.1)  # 100ms delay
 
-def convert_adc_to_current(adc_value):
-    """
-    Converts the ADC reading to a current value in amperes using the ACS712 sensor.
+    # Read the conversion result
+    data = bus.read_i2c_block_data(I2C_ADDRESS, CONVERSION_REG, 2)
     
-    :param adc_value: The ADC reading as a 16-bit integer.
-    :return: The converted current value in amperes.
-    """
-    # Conversion constants for ACS712 (185 mV/A sensitivity, 16-bit ADC)
-    Vref = 4.096  # Reference voltage for ADS1115
-    sensitivity = 0.185  # Sensitivity in V/A
-    adc_resolution = 65535  # 16-bit resolution
+    # Convert the result to a signed 16-bit value
+    raw_adc = data[0] << 8 | data[1]
+    if raw_adc > 0x7FFF:
+        raw_adc -= 0x10000
     
+    return raw_adc
+
+def calculate_current_mA(adc_value):
+    # ACS712 calculation
+    VREF = 3.3  # Reference voltage
+    ADC_MAX = 32767.0  # 16-bit ADC resolution
+    MV_PER_AMP = 185.0  # Sensitivity for ACS712 (in mV/A) for the 5A version
+
     # Convert ADC value to voltage
-    voltage = (adc_value * Vref) / adc_resolution
-    
-    # Convert voltage to current (ACS712)
-    current = (voltage - Vref / 2) / sensitivity
-    
-    return current
+    voltage = (adc_value / ADC_MAX) * VREF
+    current = (voltage - VREF / 2) / (MV_PER_AMP / 1000)
+    return current * 1000  # Convert to milliamps
 
 if __name__ == "__main__":
-    # Specify the channel to read from (0 for AIN0)
-    channel = 0
+    output_file = "/home/root/workspace/final_work2/current.txt"
     
-    # Configure the ADS1115 to read from the specified channel
-    configure_ads1115(channel)
-    
-    # Wait for the ADC conversion to complete
-    time.sleep(0.1)
-    
-    # Read the ADC value
-    adc_value = read_ads1115()
-    
-    # Convert the ADC reading to current
-    current = convert_adc_to_current(adc_value)
-    
-    # Write the current reading to a file
-    with open("/home/root/workspace/work_current/current.txt", "w") as f:
-        f.write(f"{current:.3f} A\n")
-    
-    # Print the ADC value and converted current to the console
-    print(f"ADC Value for channel {channel}: {adc_value}")
-    print(f"Converted Current: {current:.3f} A")
+    try:
+        while True:
+            adc_value = read_adc(0)  # Reading from channel 0
+            current_mA = calculate_current_mA(adc_value)
+            current_mA = current_mA + 3360
+            print(current_mA) 
+            with open(output_file, "a") as file:
+                file.write(f"{current_mA:.3f}\n")
+            
+            time.sleep(2)  # Update every second
+    except KeyboardInterrupt:
+        print("Script terminated.")
+         
