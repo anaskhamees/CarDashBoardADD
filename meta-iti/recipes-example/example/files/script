@@ -1,0 +1,9 @@
+#!/bin/bash
+
+# Define the paths
+JAVA_HOME="/usr/lib/jvm/jdk-17-oracle-aarch64/bin"
+MODULE_PATH="/home/root/javafx-sdk-22.0.2/lib"
+JAR_PATH="/home/root/Car_Dashboard/dist/Car_Dashboard.jar"
+
+# Run the Java application
+"$JAVA_HOME/java" --module-path "$MODULE_PATH" --add-modules javafx.controls,javafx.fxml,javafx.web,javafx.graphics -jar "$JAR_PATH"

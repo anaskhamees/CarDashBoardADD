@@ -1,0 +1,8 @@
+[Unit]
+Description=temp
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/root/workspace/final_work/main4.py
+
+[Install]
+WantedBy=multi-user.target
