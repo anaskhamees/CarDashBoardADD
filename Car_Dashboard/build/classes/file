@@ -1,0 +1,539 @@
+in this code :
+import java.io.IOException;
+import java.io.InputStream;
+import javafx.animation.FadeTransition;
+import javafx.application.Application;
+import javafx.geometry.Pos;
+import javafx.scene.Scene;
+import javafx.scene.control.Button;
+import javafx.scene.control.Label;
+import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
+import javafx.scene.text.Font;
+import javafx.stage.Stage;
+import javafx.util.Duration;
+import javafx.scene.canvas.Canvas;
+import javafx.scene.canvas.GraphicsContext;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
+import javafx.scene.paint.Color;
+import javafx.scene.web.WebEngine;
+import javafx.scene.web.WebView;
+import javafx.application.Platform;
+import java.util.Calendar;
+import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.ExecutionException;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import javafx.animation.SequentialTransition;
+import javafx.concurrent.Task;
+import javafx.event.ActionEvent;
+import javafx.scene.control.Alert;
+import javafx.scene.control.Alert.AlertType;
+import javafx.scene.control.ListCell;
+import javafx.scene.control.ListView;
+
+public class DashBoard extends Application {
+
+    private BorderPane root;
+    private VBox centralContent;
+    private Label timeLabel;
+    private Label dateLabel;
+    private Label speedValueLabel;
+    private Canvas speedGaugeCanvas;
+    private GraphicsContext speedGc;
+    private final int SPEED_THRESHOLD = 100;
+    private boolean isLogoAnimating = false;
+    private SequentialTransition logoAnimation;
+
+    @Override
+    public void start(Stage primaryStage) {
+        primaryStage.setTitle("Car Dashboard");
+
+        HBox topNavBar = createTopNavBar();
+        HBox bottomInfoBar = createBottomInfoBar();
+        VBox speedGauge = createSpeedGauge();
+        VBox rpmGauge = Framework.createGauge("2.8", "x100/min", Color.CYAN);
+        centralContent = createMediaInfo(); // Initialize with media info
+
+        root = new BorderPane();
+        root.setTop(topNavBar);
+        root.setBottom(bottomInfoBar);
+        root.setLeft(rpmGauge);
+        root.setRight(speedGauge);
+        root.setCenter(centralContent);
+        root.setStyle("-fx-background-color: #2C2F33;");
+
+        StackPane imagePane = new StackPane();
+        Scene scene = new Scene(imagePane, 760, 380);
+        primaryStage.setScene(scene);
+
+        Framework.showInitialImage(primaryStage, root);
+
+        startClock();
+        animateSpeedGauge();
+        preloadGIF();
+
+    }
+
+    private HBox createTopNavBar() {
+    HBox topNavBar = new HBox(30);
+    topNavBar.setAlignment(Pos.CENTER);
+    topNavBar.setStyle("-fx-padding: 10; -fx-background-color: #23272A;");
+
+    String[] navOptions = {"Phone", "Nav", "Media", "Settings"};
+    String[] iconPaths = {"images/phone.png", "images/map.png", "images/media.png", "images/details.png"};
+
+    for (int i = 0; i < navOptions.length; i++) {
+        Button button = new Button();
+        button.setTextFill(Color.ORANGE);
+        button.setFont(new Font("Arial", 20));
+        button.setStyle("-fx-background-color: #23272A; -fx-border-color: #7289DA; -fx-border-radius: 10; -fx-text-fill: #FFFFFF;");
+
+        try {
+            // Load and set the icon
+            Image icon = new Image(iconPaths[i]);
+            ImageView iconView = new ImageView(icon);
+            iconView.setFitWidth(30);
+            iconView.setFitHeight(30);
+
+            // Add the icon to the button
+            button.setGraphic(iconView);
+        } catch (Exception e) {
+            // Handle any exception (e.g., missing image file)
+            System.err.println("Error loading icon for " + navOptions[i] + ": " + e.getMessage());
+            showErrorAlert("Error", "Could not load icon for " + navOptions[i]);
+        }
+
+        final String option = navOptions[i]; // Final variable for lambda expression
+
+        button.setOnMouseEntered(e -> button.setStyle("-fx-background-color: #7289DA; -fx-border-radius: 10; -fx-text-fill: #FFFFFF;"));
+        button.setOnMouseExited(e -> button.setStyle("-fx-background-color: #23272A; -fx-border-color: #7289DA; -fx-border-radius: 10; -fx-text-fill: #FFFFFF;"));
+        button.setOnAction(e -> handleMenuSelection(option));
+
+        topNavBar.getChildren().add(button);
+    }
+
+    return topNavBar;
+}
+
+// Helper method to show an alert
+private void showErrorAlert(String title, String content) {
+    Alert alert = new Alert(AlertType.ERROR);
+    alert.setTitle(title);
+    alert.setHeaderText(null);
+    alert.setContentText(content);
+    alert.showAndWait();
+}
+    
+
+    private HBox createBottomInfoBar() {
+        HBox bottomInfoBar = new HBox(30);
+        bottomInfoBar.setAlignment(Pos.CENTER);
+        bottomInfoBar.setStyle("-fx-padding: 10; -fx-background-color: #23272A;");
+
+        String[] infoItems = {"5G", "28°C"};
+        for (String item : infoItems) {
+            Label label = new Label(item);
+            label.setTextFill(Color.GRAY);
+            label.setFont(new Font("Arial", 16));
+            bottomInfoBar.getChildren().add(label);
+        }
+
+        dateLabel = new Label();
+        dateLabel.setTextFill(Color.GRAY);
+        dateLabel.setFont(new Font("Arial", 14));
+        bottomInfoBar.getChildren().add(dateLabel);
+
+        timeLabel = new Label();
+        timeLabel.setTextFill(Color.GRAY);
+        timeLabel.setFont(new Font("Arial", 14));
+        bottomInfoBar.getChildren().add(timeLabel);
+
+        return bottomInfoBar;
+    }
+
+    private VBox createSpeedGauge() {
+        VBox gaugeBox = new VBox(10);
+        gaugeBox.setAlignment(Pos.CENTER);
+
+        speedGaugeCanvas = new Canvas(200, 200);
+        speedGc = speedGaugeCanvas.getGraphicsContext2D();
+        Framework.drawSpeedGaugeArc(speedGc, Color.ORANGE, 0);
+
+        speedValueLabel = new Label("0");
+        speedValueLabel.setFont(new Font("Arial", 40));
+        speedValueLabel.setTextFill(Color.ORANGE);
+
+        Label unitLabel = new Label("km/h");
+        unitLabel.setFont(new Font("Arial", 15));
+        unitLabel.setTextFill(Color.ORANGE);
+
+        HBox valueUnitBox = new HBox(10);
+        valueUnitBox.setAlignment(Pos.CENTER);
+        valueUnitBox.getChildren().addAll(speedValueLabel, unitLabel);
+
+        gaugeBox.getChildren().addAll(speedGaugeCanvas, valueUnitBox);
+        return gaugeBox;
+    }
+
+   private void animateSpeedGauge() {
+    new Thread(() -> {
+        try {
+            // Attempt to read the speed values from the file
+            List<Integer> speeds = Framework.readSpeedValuesFromFile("speeds.txt");
+
+            if (speeds.isEmpty()) {
+                // Show alert on JavaFX Application Thread if the file is empty
+                Platform.runLater(() -> showErrorAlert("No Data", "The speeds.txt file is empty."));
+            } else {
+                // Continue with the animation if the file is successfully read
+                Timer timer = new Timer(true);
+                TimerTask task = new TimerTask() {
+                    private int index = 0;
+
+                    @Override
+                    public void run() {
+                        Platform.runLater(() -> {
+                            try {
+                                int speed = speeds.get(index);
+                                Framework.drawSpeedGaugeArc(speedGc, Color.ORANGE, speed); // Update gauge drawing
+                                speedValueLabel.setText(String.valueOf(speed)); // Update label
+                                index = (index + 1) % speeds.size(); // Cycle through the speed values
+                            } catch (Exception e) {
+                                // Handle any unexpected exceptions during gauge update
+                                System.err.println("Error updating speed gauge: " + e.getMessage());
+                                Platform.runLater(() -> showErrorAlert("Error", "Failed to update the speed gauge."));
+                            }
+                        });
+                    }
+                };
+                timer.scheduleAtFixedRate(task, 0, 100); // Update every second
+            }
+        } catch (IOException e) {
+            // Handle file loading error and show alert on the JavaFX Application Thread
+            System.err.println("Error loading speeds.txt: " + e.getMessage());
+            Platform.runLater(() -> showErrorAlert("File Error", "The speeds.txt file could not be loaded. Please check if it exists and is accessible."));
+        }
+    }).start();
+}
+    
+    
+
+    private VBox createMediaInfo() {
+        VBox mediaBox = new VBox(20);
+        mediaBox.setAlignment(Pos.CENTER);
+        mediaBox.setStyle("-fx-background-color: #1F1F1F;");
+
+        Label mediaLabel = new Label("Media Info");
+        mediaLabel.setFont(new Font("Arial", 24));
+        mediaLabel.setTextFill(Color.WHITE);
+
+        mediaBox.getChildren().add(mediaLabel);
+        return mediaBox;
+    }
+
+    private void startClock() {
+        Timer timer = new Timer();
+        timer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                Calendar calendar = Calendar.getInstance();
+                final String time = String.format("%02d:%02d:%02d",
+                        calendar.get(Calendar.HOUR_OF_DAY),
+                        calendar.get(Calendar.MINUTE),
+                        calendar.get(Calendar.SECOND));
+                final String date = String.format("%02d/%02d/%04d",
+                        calendar.get(Calendar.DAY_OF_MONTH),
+                        calendar.get(Calendar.MONTH) + 1,
+                        calendar.get(Calendar.YEAR));
+                javafx.application.Platform.runLater(() -> {
+                    timeLabel.setText(time);
+                    dateLabel.setText(date);
+                });
+            }
+        }, 0, 1000); // Update every second
+    }
+
+    private void handleMenuSelection(String option) {
+        System.out.println("Button clicked: " + option); // Debug message
+
+        // Ensure centralContent is initialized before using it
+        if (centralContent == null) {
+            System.err.println("centralContent is not initialized");
+            return;
+        }
+
+        // Stop existing animations if needed
+        if (isLogoAnimating) {
+            if (logoAnimation != null) {
+                logoAnimation.stop();
+            }
+            isLogoAnimating = false;
+        }
+
+        // Clear previous content
+        centralContent.getChildren().clear();
+
+        FadeTransition fadeOut = new FadeTransition(Duration.millis(300), centralContent);
+        fadeOut.setFromValue(1.0);
+        fadeOut.setToValue(0.0);
+
+        FadeTransition fadeIn = new FadeTransition(Duration.millis(300), centralContent);
+        fadeIn.setFromValue(0.0);
+        fadeIn.setToValue(1.0);
+
+        fadeOut.setOnFinished((ActionEvent e) -> {
+            try {
+                switch (option) {
+                    case "Phone":
+                        displayContactList(); // Assuming this method exists
+                        break;
+                        
+                    case "Nav":
+                        displayGoogleMaps();
+                        break;
+                        
+                    case "Media":
+                        if (!isLogoAnimating) {
+                            showLogoAnimation();
+                        }
+                        break;
+                        
+                    case "Settings":
+                        displaySettings();
+                        break;
+                        
+                    default:
+                        System.err.println("Unhandled menu option: " + option);
+                        break;
+                }
+            } catch (Exception ex) {
+                System.err.println("Error handling menu selection: " + ex.getMessage());
+            }
+            
+            fadeIn.play();
+        });
+
+        fadeOut.play();
+    }
+
+
+private Image preloadedImage;
+private boolean isImageLoaded = false;
+
+private void preloadGIF() {
+    // Create a Task with explicit type argument
+    Task<Image> loadImageTask = new Task<Image>() {
+        @Override
+        protected Image call() {
+            try (InputStream inputStream = getClass().getResourceAsStream("/luxoft.gif")) {
+                if (inputStream == null) {
+                    throw new RuntimeException("Resource not found: /luxoft.gif");
+                }
+                return new Image(inputStream);
+            } catch (Exception e) {
+                throw new RuntimeException("Error loading GIF: " + e.getMessage(), e);
+            }
+        }
+    };
+
+    loadImageTask.setOnSucceeded(e -> {
+        try {
+            preloadedImage = loadImageTask.get();
+        } catch (InterruptedException ex) {
+            Logger.getLogger(DashBoard.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (ExecutionException ex) {
+            Logger.getLogger(DashBoard.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        isImageLoaded = true;
+        System.out.println("GIF preloaded successfully.");
+    });
+
+    loadImageTask.setOnFailed(e -> {
+        System.err.println("Error loading GIF: " + loadImageTask.getException().getMessage());
+        loadImageTask.getException().printStackTrace();
+    });
+
+    new Thread(loadImageTask).start();
+}
+
+private void showLogoAnimation() {
+    // Load the GIF image only when the Media option is selected
+    if (preloadedImage == null) {
+        try (InputStream inputStream = getClass().getResourceAsStream("/luxoft.gif")) {
+            if (inputStream == null) {
+                throw new RuntimeException("Resource not found: /luxoft.gif");
+            }
+            preloadedImage = new Image(inputStream);
+        } catch (Exception e) {
+            System.err.println("Error loading GIF: " + e.getMessage());
+            e.printStackTrace(); // Print stack trace for debugging
+            return;
+        }
+    }
+
+    // Update UI components on the JavaFX Application Thread
+    Platform.runLater(() -> {
+        try {
+            ImageView logoView = new ImageView(preloadedImage);
+
+            logoView.setFitHeight(300); // Adjust size as needed
+            logoView.setFitWidth(370);  // Adjust size as needed
+
+            // Create a StackPane to center the logo
+            StackPane logoPane = new StackPane(logoView);
+            logoPane.setStyle("-fx-background-color: #F5F5F5;"); // Same background color as the dashboard
+
+            // Clear existing content and add the logoPane to centralContent
+            centralContent.getChildren().clear();
+            centralContent.getChildren().add(logoPane);
+
+            System.out.println("GIF displayed successfully.");
+        } catch (Exception e) {
+            System.err.println("Error displaying GIF: " + e.getMessage());
+            e.printStackTrace(); // Print stack trace for debugging
+        }
+    });
+}
+   
+    
+    private void displayGoogleMaps() {
+        // Clear existing content
+        centralContent.getChildren().clear();
+
+        // Create a WebView to display Google Maps
+        WebView webView = new WebView();
+        WebEngine webEngine = webView.getEngine();
+
+        // Set the size of the WebView
+        webView.setPrefSize(800, 600); // Adjust size as needed
+
+        // Load Google Maps URL
+        String googleMapsUrl = "https://www.google.com/maps";
+        webEngine.load(googleMapsUrl);
+
+        // Create a container to set the background color
+        StackPane container = new StackPane(webView);
+        container.setStyle("-fx-background-color: #F0F0F0;"); // Off-white color
+
+        // Add the container to centralContent
+        centralContent.getChildren().add(container);
+    }
+
+    private void displaySettings() {
+        // Ensure centralContent is initialized
+        if (centralContent == null) {
+            System.err.println("centralContent is not initialized");
+            return;
+        }
+
+        // Clear previous content
+        centralContent.getChildren().clear();
+
+        // Create a VBox to hold the settings text
+        VBox settingsBox = new VBox(20);
+        settingsBox.setAlignment(Pos.CENTER);
+        settingsBox.setStyle("-fx-background-color: #F0F0F0; -fx-padding: 20;");
+
+        // Create a Label with the settings text
+        Label settingsLabel = new Label("Settings Menu");
+        settingsLabel.setFont(new Font("Arial", 24));
+        settingsLabel.setTextFill(Color.BLACK);
+
+        // Add the Label to the VBox
+        settingsBox.getChildren().add(settingsLabel);
+
+        // Add the VBox to centralContent
+        centralContent.getChildren().add(settingsBox);
+    }
+
+    private void displayContactList() {
+        // Clear existing content
+        centralContent.getChildren().clear();
+
+        // Create a VBox to hold the contact list
+        VBox contactListBox = new VBox(10);
+        contactListBox.setAlignment(Pos.CENTER);
+        contactListBox.setStyle("-fx-background-color: #F0F0F0; -fx-padding: 20;");
+
+        // Create a Label for the contact list
+        Label contactListLabel = new Label("Contact List");
+        contactListLabel.setFont(new Font("Arial", 24));
+        contactListLabel.setTextFill(Color.BLACK);
+
+        // Create a ListView to display contacts
+        ListView<Contact> contactListView = new ListView<>();
+        contactListView.setPrefWidth(400);
+
+        // Sample contacts with images and phone numbers (replace with actual data)
+        try {
+            contactListView.getItems().addAll(
+                    new Contact("Farouk Ehab", "01068555223", new Image(getClass().getResourceAsStream("contacts/farouk.png"))),
+                    new Contact("Ahmed Elnahas", "01024797847", new Image(getClass().getResourceAsStream("contacts/nahas.png"))),
+                    new Contact("Ahmed Abdallah", "01557090844", new Image(getClass().getResourceAsStream("contacts/abdallah.png"))),
+                    new Contact("Anas Khames", "01025805968", new Image(getClass().getResourceAsStream("contacts/anas.png")))
+            );
+        } catch (Exception e) {
+            System.err.println("Error loading images: " + e.getMessage());
+        }
+        // Set cell factory for ListView to display contact information
+
+        contactListView.setCellFactory(lv -> new ListCell<Contact>() {
+            private final HBox hbox = new HBox(10);
+            private final ImageView imageView = new ImageView();
+            private final VBox textBox = new VBox();
+            private final Label nameLabel = new Label();
+            private final Label phoneLabel = new Label();
+
+            {
+                imageView.setFitWidth(50);
+                imageView.setFitHeight(50);
+                textBox.getChildren().addAll(nameLabel, phoneLabel);
+                hbox.getChildren().addAll(imageView, textBox);
+                hbox.setAlignment(Pos.CENTER_LEFT);
+                setGraphic(hbox);
+            }
+
+            @Override
+            protected void updateItem(Contact contact, boolean empty) {
+                super.updateItem(contact, empty);
+                if (empty || contact == null) {
+                    setText(null);
+                    setGraphic(null);
+                } else {
+                    nameLabel.setText(contact.getName());
+                    phoneLabel.setText(contact.getPhoneNumber());
+                    imageView.setImage(contact.getPhoto());
+                    setGraphic(hbox);
+                }
+            }
+        });
+
+        // Add event handler to handle contact selection
+        contactListView.setOnMouseClicked(event -> {
+            Contact selectedContact = contactListView.getSelectionModel().getSelectedItem();
+            if (selectedContact != null) {
+                // Simulate a call (replace with actual functionality)
+                System.out.println("Calling " + selectedContact.getName() + " at " + selectedContact.getPhoneNumber());
+            }
+        });
+
+        // Add components to the VBox
+        contactListBox.getChildren().addAll(contactListLabel, contactListView);
+
+        // Add the VBox to centralContent
+        centralContent.getChildren().add(contactListBox);
+    }
+
+    public static void main(String[] args) {
+        launch(args);
+    }
+}
+
+
+i want a thread in the start of program read the gif luxoft.gif file , because the gif file take long time to read ,, but also i want the gif not run except i clicked Media icon ,, in this code the gif file run in background before i click the media button 

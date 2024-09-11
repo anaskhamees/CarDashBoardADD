@@ -1,0 +1,20 @@
+/* styles.css */
+
+/* Style for the root pane */
+.root {
+    -fx-background-color: #2E3B4E; /* Choose your preferred background color */
+}
+
+/* Optionally, style other elements */
+.top-bar {
+    -fx-background-color: #1F2A38;
+}
+
+.bottom-info-bar {
+    -fx-background-color: #23272A;
+}
+
+.button {
+    -fx-background-color: #3C4C6C;
+    -fx-text-fill: white;
+}
