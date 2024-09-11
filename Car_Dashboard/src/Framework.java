@@ -1,4 +1,3 @@
-// Framework.java
 
 import javafx.animation.*;
 import javafx.scene.canvas.Canvas;
@@ -25,44 +24,45 @@ public class Framework {
 
     private static long lastFilePointer = 0;
 
-public static void showInitialImage(Stage primaryStage, BorderPane root) {
-    Image logoImage = new Image(Framework.class.getResourceAsStream("/IVI.gif"));
-    if (logoImage.isError()) {
-        System.out.println("Error loading the image.");
-        return;
+    public static void showInitialImage(Stage primaryStage, BorderPane root) {
+        Image logoImage = new Image(Framework.class.getResourceAsStream("/IVI.gif"));
+        if (logoImage.isError()) {
+            System.out.println("Error loading the image.");
+            return;
+        }
+
+        ImageView logoView = new ImageView(logoImage);
+
+        logoView.setOpacity(0.0);
+
+        StackPane imagePane = new StackPane(logoView);
+        imagePane.setStyle("-fx-background-color: #0D0D1A;");
+
+        imagePane.setPrefSize(760, 380);
+
+        primaryStage.getScene().setRoot(imagePane);
+        primaryStage.show();
+
+        FadeTransition fadeIn = new FadeTransition(Duration.millis(500), logoView);
+        fadeIn.setFromValue(0.0);
+        fadeIn.setToValue(1.0);
+
+        PauseTransition pause = new PauseTransition(Duration.seconds(12));
+
+        FadeTransition fadeOut = new FadeTransition(Duration.millis(500), logoView);
+        fadeOut.setFromValue(1.0);
+        fadeOut.setToValue(0.0);
+
+        fadeOut.setOnFinished(event -> {
+            primaryStage.getScene().setRoot(root);
+        });
+
+        SequentialTransition sequence = new SequentialTransition(fadeIn, pause, fadeOut);
+        sequence.play();
     }
 
-    ImageView logoView = new ImageView(logoImage);
-    logoView.setOpacity(0.0);
-
-    StackPane imagePane = new StackPane(logoView);
-    imagePane.setStyle("-fx-background-color: #0D0D1A;"); // Set background color to a dark blue shade
-
-    imagePane.setPrefSize(760, 380);
-
-    primaryStage.getScene().setRoot(imagePane);
-    primaryStage.show();
-
-    FadeTransition fadeIn = new FadeTransition(Duration.millis(500), logoView);
-    fadeIn.setFromValue(0.0);
-    fadeIn.setToValue(1.0);
-
-    PauseTransition pause = new PauseTransition(Duration.seconds(12));
-
-    FadeTransition fadeOut = new FadeTransition(Duration.millis(500), logoView);
-    fadeOut.setFromValue(1.0);
-    fadeOut.setToValue(0.0);
-
-    fadeOut.setOnFinished(event -> {
-        primaryStage.getScene().setRoot(root);
-    });
-
-    SequentialTransition sequence = new SequentialTransition(fadeIn, pause, fadeOut);
-    sequence.play();
-}
-
-    public static List<Double> readTemperatureValuesFromFile(String filePath) throws IOException {
-        List<Double> temperatures = new ArrayList<>();
+    public static List<Integer> readTemperatureValuesFromFile(String filePath) throws IOException {
+        List<Integer> temperatures = new ArrayList<>();
         try (RandomAccessFile file = new RandomAccessFile(filePath, "r")) {
             file.seek(lastFilePointer); // Start reading from the last position
             String line;
@@ -73,7 +73,7 @@ public static void showInitialImage(Stage primaryStage, BorderPane root) {
                     continue;
                 }
                 try {
-                    temperatures.add(Double.parseDouble(line));
+                    temperatures.add(Integer.parseInt(line));
                 } catch (NumberFormatException e) {
                     System.err.println("Invalid number format in file: \"" + line + "\"");
                 }
@@ -84,27 +84,26 @@ public static void showInitialImage(Stage primaryStage, BorderPane root) {
     }
 
     public static List<Double> readMilliAmpValuesFromFile(String filePath) throws IOException {
-    List<Double> milliAmpValues = new ArrayList<>();
-    try (RandomAccessFile file = new RandomAccessFile(filePath, "r")) {
-        String line;
-        while ((line = file.readLine()) != null) {
-            line = line.trim();
-            if (line.isEmpty()) {
-                System.err.println("Skipping empty line.");
-                continue;
-            }
-            try {
-                milliAmpValues.add(Double.parseDouble(line));
-            } catch (NumberFormatException e) {
-                System.err.println("Invalid number format in file: \"" + line + "\"");
+        List<Double> milliAmpValues = new ArrayList<>();
+        try (RandomAccessFile file = new RandomAccessFile(filePath, "r")) {
+            String line;
+            while ((line = file.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty()) {
+                    System.err.println("Skipping empty line.");
+                    continue;
+                }
+                try {
+                    milliAmpValues.add(Double.parseDouble(line));
+                } catch (NumberFormatException e) {
+                    System.err.println("Invalid number format in file: \"" + line + "\"");
+                }
             }
         }
+        return milliAmpValues;
     }
-    return milliAmpValues;
-}
 
-
-    public static void drawTemperatureGaugeArc(GraphicsContext gc, Color color, double value) {
+    public static void drawTemperatureGaugeArc(GraphicsContext gc, Color color, int value) {
         gc.clearRect(0, 0, 200, 200); // Clear previous drawing
         gc.setFill(Color.TRANSPARENT);
         gc.setStroke(color);
@@ -115,8 +114,32 @@ public static void showInitialImage(Stage primaryStage, BorderPane root) {
         gc.strokeArc(30, 30, 140, 140, startAngle, extent, ArcType.OPEN);
     }
 
+    public static VBox createGauge(String mainValue, String unit, Color color) {
+        VBox gaugeBox = new VBox(-10);
+        gaugeBox.setAlignment(Pos.CENTER);
+
+        Canvas gaugeCanvas = new Canvas(200, 200);
+        GraphicsContext gc = gaugeCanvas.getGraphicsContext2D();
+        LinearGradient gradient = new LinearGradient(0, 0, 1, 1, true, null,
+                new Stop(0, color.brighter()), new Stop(1, color.darker()));
+        gc.setStroke(gradient);
+        gc.setLineWidth(10);
+        gc.strokeArc(30, 30, 140, 140, 45, 270, ArcType.OPEN);
+
+        Label valueLabel = new Label(mainValue);
+        valueLabel.setFont(new Font("Arial", 50));
+        valueLabel.setTextFill(color);
+
+        Label unitLabel = new Label(unit);
+        unitLabel.setFont(new Font("Arial", 18));
+        unitLabel.setTextFill(color);
+
+        gaugeBox.getChildren().addAll(gaugeCanvas, valueLabel, unitLabel);
+
+        return gaugeBox;
+    }
     
-   public static void drawMilliAmpGaugeArc(GraphicsContext gc, Color color, double value) {
+    public static void drawMilliAmpGaugeArc(GraphicsContext gc, Color color, double value) {
     gc.clearRect(0, 0, 200, 200); // Clear previous drawing
     gc.setFill(Color.TRANSPARENT);
     gc.setStroke(color);
@@ -130,18 +153,14 @@ public static void showInitialImage(Stage primaryStage, BorderPane root) {
     gc.strokeArc(30, 30, 140, 140, startAngle, extent, ArcType.OPEN);
 }
 
-
-
-
-    
-    public static void scrollText(Label label, BorderPane root) {
-        final Timeline timeline = new Timeline(new KeyFrame(Duration.millis(20), e -> {
-            if (label.getLayoutX() < -label.getWidth()) {
-                label.setLayoutX(root.getWidth());
-            }
-            label.setLayoutX(label.getLayoutX() - 1);
-        }));
-        timeline.setCycleCount(Timeline.INDEFINITE);
-        timeline.play();
-    }
+//    public static void scrollText(Label label, BorderPane root) {
+//        final Timeline timeline = new Timeline(new KeyFrame(Duration.millis(20), e -> {
+//            if (label.getLayoutX() < -label.getWidth()) {
+//                label.setLayoutX(root.getWidth());
+//            }
+//            label.setLayoutX(label.getLayoutX() - 1);
+//        }));
+//        timeline.setCycleCount(Timeline.INDEFINITE);
+//        timeline.play();
+//    }
 }
